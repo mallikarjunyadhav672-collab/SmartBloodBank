@@ -6,8 +6,8 @@ from flask_migrate import Migrate
 from dotenv import load_dotenv
 
 from db import db
-from models import User, Donor, Receiver, Camp, BloodBank
-from mail import mail, send_verification_email, send_request_notification, send_donation_confirmation
+from models import User, Donor, Receiver, Camp, BloodBank, Notification, Feedback, SavedDonor, SavedReceiver, SearchHistory, DonorStats
+from mail import mail, send_verification_email, send_request_notification, send_donation_confirmation, send_blood_request_to_donor, send_sms_notification
 from schemas import validate_schema, UserRegisterSchema, UserLoginSchema, DonorSchema, ReceiverSchema, ValidationError
 
 from sqlalchemy import text
@@ -49,6 +49,201 @@ def haversine(lat1, lon1, lat2, lon2):
     return R * c
 
 
+def send_notifications_to_eligible_donors(receiver: Receiver, geocoded_app_ref=None):
+    """
+    Find eligible donors and send SMS, email, and in-app notifications.
+    Called when a receiver submits a blood request.
+    """
+    app_ref = geocoded_app_ref
+    if not app_ref:
+        return
+    
+    try:
+        # Find donors with matching blood group
+        eligible_donors = Donor.query.filter_by(
+            bloodGroup=receiver.bloodGroup, 
+            availabilityStatus="available"
+        ).all()
+        
+        if not eligible_donors:
+            app_ref.logger.info(f"No eligible donors found for {receiver.bloodGroup}")
+            return
+        
+        # Get receiver user for email
+        receiver_user = User.query.get(receiver.userId)
+        if not receiver_user:
+            return
+        
+        notified_count = 0
+        
+        for donor in eligible_donors:
+            try:
+                # Calculate distance if both have coordinates
+                distance_km = None
+                if donor.latitude and donor.longitude and receiver.latitude and receiver.longitude:
+                    distance_km = haversine(donor.latitude, donor.longitude, receiver.latitude, receiver.longitude)
+                    # Only notify donors within 50 km
+                    if distance_km > 50:
+                        continue
+                
+                # Get donor user details for email
+                donor_user = User.query.get(donor.userId)
+                if not donor_user:
+                    continue
+                
+                # Create in-app notification
+                notification = Notification(
+                    donorId=donor.id,
+                    receiverId=receiver.id,
+                    type="blood_request",
+                    subject=f"🩸 {receiver.bloodGroup} Blood Needed in {receiver.city}",
+                    message=f"Patient {receiver.name} needs {receiver.units} unit(s) of {receiver.bloodGroup} blood in {receiver.city}. Please respond if you can help!",
+                    status="unread",
+                    emailSent=False,
+                    smsSent=False
+                )
+                db.session.add(notification)
+                db.session.commit()
+                
+                # Send email notification
+                email_sent = send_blood_request_to_donor(
+                    donor_user.email,
+                    donor.fullName,
+                    receiver.name,
+                    receiver.bloodGroup,
+                    receiver.units,
+                    receiver.city,
+                    distance_km
+                )
+                notification.emailSent = email_sent
+                
+                # Send SMS notification
+                sms_sent = send_sms_notification(
+                    donor.phone,
+                    donor.fullName,
+                    receiver.bloodGroup,
+                    receiver.units,
+                    receiver.city
+                )
+                notification.smsSent = sms_sent
+                
+                db.session.commit()
+                notified_count += 1
+                app_ref.logger.info(f"Notified donor {donor.fullName} ({donor.phone}) about blood request")
+                
+            except Exception as e:
+                app_ref.logger.error(f"Failed to notify donor {donor.id}: {e}")
+                db.session.rollback()
+                continue
+        
+        if notified_count > 0:
+            app_ref.logger.info(f"Successfully notified {notified_count} donors about blood request {receiver.id}")
+    
+    except Exception as e:
+        app_ref.logger.error(f"Error in send_notifications_to_eligible_donors: {e}")
+
+
+def check_donor_eligibility(donor: Donor):
+    """
+    Check if a donor is eligible to donate blood now.
+    Returns: (is_eligible: bool, message: str, eligible_date: str or None)
+    """
+    # Check chronic illness
+    if donor.chronicIllness == "yes":
+        return False, "⚠️ You have reported chronic illness. Consult doctor before donating.", None
+    
+    # Check recent surgery
+    if donor.recentSurgery == "yes":
+        return False, "⚠️ Recent surgery detected. Wait for medical clearance.", None
+    
+    # Check doctor advise
+    if donor.doctorAdvised == "yes":
+        return False, "⚠️ Doctor advised against donation. Follow medical advice.", None
+    
+    # Check infection history
+    if donor.infectionHistory == "yes":
+        return False, "⚠️ Recent infection detected. Wait until fully recovered.", None
+    
+    # Check 56-day rule (donation interval)
+    if donor.lastDonationDate:
+        from datetime import datetime as dt
+        try:
+            last_donation = dt.strptime(donor.lastDonationDate, "%Y-%m-%d")
+            days_passed = (dt.now() - last_donation).days
+            if days_passed < 56:
+                days_remaining = 56 - days_passed
+                eligible_date = (dt.now() + timedelta(days=days_remaining)).strftime("%Y-%m-%d")
+                return False, f"⏳ You can donate again after {days_remaining} days", eligible_date
+        except:
+            pass
+    
+    return True, "✅ You are eligible to donate!", None
+
+
+def calculate_donor_stats(donor_id: int):
+    """
+    Calculate and update donor statistics for ML model.
+    """
+    try:
+        # Get all responses by this donor
+        all_responses = Receiver.query.filter_by(donorId=donor_id).all()
+        
+        total_responses = len(all_responses)
+        successful = len([r for r in all_responses if r.status == "donated"])
+        cancelled = len([r for r in all_responses if r.status == "pending"])
+        
+        # Get feedback ratings
+        feedback_records = Feedback.query.filter_by(toUserId=Donor.query.get(donor_id).userId).all()
+        avg_rating = sum(f.rating for f in feedback_records if f.rating) / len(feedback_records) if feedback_records else 0
+        
+        # Calculate reliability
+        reliability = (successful / total_responses * 100) if total_responses > 0 else 0
+        
+        # Update or create stats
+        stats = DonorStats.query.filter_by(donorId=donor_id).first()
+        if not stats:
+            stats = DonorStats(donorId=donor_id)
+            db.session.add(stats)
+        
+        stats.totalResponses = total_responses
+        stats.successfulDonations = successful
+        stats.cancelledDonations = cancelled
+        stats.averageRating = round(avg_rating, 2)
+        stats.totalFeedback = len(feedback_records)
+        stats.reliability = round(reliability, 2)
+        
+        db.session.commit()
+        return stats
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error calculating donor stats: {e}")
+        return None
+
+
+def predict_donor_response_probability(donor_id: int):
+    """
+    Simple ML-based prediction of donor response probability (0-1).
+    Uses donor stats: reliability, average response time, and feedback.
+    """
+    try:
+        stats = DonorStats.query.filter_by(donorId=donor_id).first()
+        if not stats:
+            stats = calculate_donor_stats(donor_id)
+        
+        if not stats:
+            return 0.5  # Default 50% if no data
+        
+        # Weight formula: 40% reliability + 30% rating + 30% response frequency
+        reliability_score = stats.reliability / 100  # 0-1
+        rating_score = stats.averageRating / 5 if stats.averageRating > 0 else 0.5  # 0-1
+        response_score = min(stats.totalResponses / 10, 1)  # Normalize to 0-1
+        
+        probability = (reliability_score * 0.4) + (rating_score * 0.3) + (response_score * 0.3)
+        return round(probability, 2)
+    except:
+        return 0.5
+
+
 def token_required(f):
     """Decorator to require JWT token in Authorization header."""
     @wraps(f)
@@ -88,8 +283,21 @@ load_dotenv()
 
 def create_app():
     app = Flask(__name__)
-    # allow requests from any origin (for development); restrict in production
-    CORS(app, resources={r"/api/*": {"origins": "*"}})
+
+    # Configure CORS based on environment
+    flask_env = os.environ.get("FLASK_ENV", "development")
+    if flask_env == "production":
+        # In production, restrict CORS to specified origins only
+        allowed_origins = os.environ.get("ALLOWED_ORIGINS", "").split(",")
+        allowed_origins = [origin.strip() for origin in allowed_origins if origin.strip()]
+        if allowed_origins:
+            CORS(app, resources={r"/api/*": {"origins": allowed_origins}})
+        else:
+            # If no origins specified, use restrictive default
+            CORS(app, resources={r"/api/*": {"origins": []}})
+    else:
+        # Development: allow all origins
+        CORS(app, resources={r"/api/*": {"origins": "*"}})
 
     # Database configuration (SQLite for development) - read from .env if present
     app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get(
@@ -113,6 +321,14 @@ def create_app():
     # this block runs early during app creation so subsequent hits see correct
     # structure. we handle donorId + latitude/longitude columns for donors &
     # receivers.
+    def column_exists(table, column):
+        """Check if a column exists in a table using PRAGMA."""
+        try:
+            result = db.session.execute(text(f"PRAGMA table_info({table})")).fetchall()
+            return any(row[1] == column for row in result)
+        except Exception:
+            return False
+
     with app.app_context():
         cols_to_check = [
             ("receiver", "donorId", "INTEGER"),
@@ -122,17 +338,15 @@ def create_app():
             ("receiver", "longitude", "REAL"),
         ]
         for table, column, col_type in cols_to_check:
-            try:
-                db.session.execute(f"SELECT {column} FROM {table} LIMIT 1")
-            except Exception:
+            if not column_exists(table, column):
                 app.logger.info(f"Adding missing {column} column to {table} at startup")
                 try:
                     db.session.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}"))
                     db.session.commit()
                 except Exception as e:
                     app.logger.error(f"Failed to add column {column} to {table}: {e}")
-            finally:
-                db.session.rollback()
+                    db.session.rollback()
+            db.session.rollback()
 
     @app.route("/favicon.ico")
     def favicon():
@@ -327,6 +541,10 @@ def create_app():
                         receiver.longitude = receiver.longitude or lon
                 db.session.add(receiver)
                 db.session.commit()
+                
+                # Send notifications to eligible donors (in background thread ideally)
+                send_notifications_to_eligible_donors(receiver, app)
+                
                 return jsonify(receiver.to_dict()), 201
             except ValidationError as e:
                 return jsonify({"error": e.messages}), 400
@@ -343,6 +561,8 @@ def create_app():
                         receiver = Receiver.from_dict(validated)
                         db.session.add(receiver)
                         db.session.commit()
+                        # Send notifications to eligible donors
+                        send_notifications_to_eligible_donors(receiver, app)
                         return jsonify(receiver.to_dict()), 201
                     except Exception as inner:
                         db.session.rollback()
@@ -374,15 +594,20 @@ def create_app():
         # stub function - in production integrate with SMTP or SMS service
         app.logger.info(f"Notification to {to_email}: {subject} - {body}")
 
-    @app.route("/api/receivers/<int:request_id>", methods=["GET", "PUT"])
+    @app.route("/api/receivers/<int:request_id>", methods=["GET", "PUT", "DELETE"])
     def receiver_detail(request_id):
-        """Get or update a receiver request.
+        """Get, update, or delete a receiver request.
         PUT may include `status` and/or `donorId` to capture a donor response.
+        DELETE allows receiver to cancel their pending request.
         """
         try:
             receiver = Receiver.query.get(request_id)
             if not receiver:
                 return jsonify({"error": "Request not found"}), 404
+            
+            if request.method == "GET":
+                return jsonify(receiver.to_dict()), 200
+            
             old_status = receiver.status
             
             if request.method == "PUT":
@@ -410,26 +635,57 @@ def create_app():
                     donor = Donor.query.get(receiver.donorId) if receiver.donorId else None
                     if receiver_user and donor:
                         send_request_notification(receiver_user.email, donor.fullName, receiver.bloodGroup, receiver.units)
+                
+                return jsonify(receiver.to_dict()), 200
+            
+            elif request.method == "DELETE":
+                # Allow receiver to delete their own pending request
+                data = request.get_json() or {}
+                user_id = data.get("userId")
+                
+                # Check if user is the owner of the request or an admin
+                user = User.query.get(user_id) if user_id else None
+                if not user or (user.role != "admin" and receiver.userId != user.id):
+                    return jsonify({"error": "Unauthorized"}), 403
+                
+                db.session.delete(receiver)
+                db.session.commit()
+                return jsonify({"message": "Request deleted successfully"}), 200
             
             return jsonify(receiver.to_dict()), 200
         except Exception as e:
             db.session.rollback()
             app.logger.error(f"Receiver detail error: {e}")
-            return jsonify({"error": f"Failed to update receiver: {str(e)}"}), 400
+            return jsonify({"error": f"Failed to process request: {str(e)}"}), 400
 
     # ==================== STATS & PREDICTION ENDPOINTS ====================
     @app.route("/api/stats", methods=["GET"])
     def stats_route():
-        """Return dashboard statistics."""
-        total_donors = Donor.query.count()
-        active_requests = Receiver.query.filter_by(status="pending").count()
-        unique_blood_groups = len(set(d.bloodGroup for d in Donor.query.all() if d.bloodGroup))
-        return jsonify({
-            "totalDonors": total_donors,
-            "activeRequests": active_requests,
-            "uniqueBloodGroups": unique_blood_groups,
-            "emergencyAlerts": 0,
-        })
+        """Return dashboard statistics with real data from database."""
+        try:
+            # Real statistics from database
+            total_donors = Donor.query.count()
+            active_requests = Receiver.query.filter_by(status="pending").count()
+            requests_served = Receiver.query.filter_by(status="donated").count()
+            partner_hospitals = BloodBank.query.count()
+
+            # Calculate lives saved (sum of units in completed requests)
+            # Each unit typically saves up to 3 lives, so multiply by 3
+            completed_units = db.session.query(db.func.sum(Receiver.units)).filter_by(status="donated").scalar() or 0
+            lives_saved = completed_units * 3
+
+            return jsonify({
+                "totalDonors": total_donors,
+                "activeRequests": active_requests,
+                "requestsServed": requests_served,
+                "livesSaved": lives_saved,
+                "partnerHospitals": partner_hospitals,
+                "uniqueBloodGroups": 8,  # Standard blood groups
+                "emergencyAlerts": active_requests,
+            }), 200
+        except Exception as e:
+            app.logger.error(f"Stats calculation error: {e}")
+            return jsonify({"error": "Failed to calculate statistics"}), 500
 
     def _location_matches(donor_loc: str, search_loc: str) -> bool:
         """Loose hierarchical comparison of location strings.
@@ -449,20 +705,21 @@ def create_app():
 
     @app.route("/api/donors/search", methods=["GET"])
     def search_donors():
-        """Search donors by blood group and location.
-        Supports numeric distance if latitude/longitude or city is provided; falls back
-        to fuzzy token matching otherwise.
+        """Search donors by blood group and location with improved accuracy.
+        Supports numeric distance if latitude/longitude or city is provided.
         Query parameters:
         - bloodGroup
-        - city (string to geocode)
+        - city (string to geocode - handles State/District/Mandal/Village hierarchy)
         - lat, lon (float) specify explicit coordinates
+        - radius (float) search radius in km (default 50)
         """
         blood_group = request.args.get("bloodGroup")
         city = request.args.get("city")
         lat = request.args.get("lat", type=float)
         lon = request.args.get("lon", type=float)
+        radius = request.args.get("radius", type=float, default=50.0)
 
-        query = Donor.query
+        query = Donor.query.filter_by(availabilityStatus="available")
         if blood_group:
             query = query.filter_by(bloodGroup=blood_group)
         donors = query.all()
@@ -476,22 +733,34 @@ def create_app():
         result = []
         for d in donors:
             dto = d.to_dict()
+            distance = None
+            
             # compute distance if we have a base point and donor coordinates
             if lat is not None and lon is not None and d.latitude is not None and d.longitude is not None:
-                dto["distance"] = haversine(lat, lon, d.latitude, d.longitude)
+                distance = haversine(lat, lon, d.latitude, d.longitude)
+                # Filter by radius
+                if distance > radius:
+                    continue
             elif city:
-                # fallback to fuzzy token score
-                dto["distance"] = sum(
-                    1
-                    for tok in set((d.city or "").lower().split())
-                    if tok in city.lower()
-                )
+                # If no GPS coords, use location matching
+                if not _location_matches(d.city or "", city):
+                    continue
+                # Fuzzy scoring for sorting when no GPS available
+                distance = 999  # Use high value for non-GPS matches
             else:
-                dto["distance"] = None
+                # No city filter and no coordinates - include all
+                pass
+            
+            dto["distance"] = distance
             result.append(dto)
 
-        # sort by numeric distance if available
-        result.sort(key=lambda x: x.get("distance") if x.get("distance") is not None else float("inf"))
+        # sort by distance (GPS matches first, then token matches, then others)
+        result.sort(key=lambda x: (
+            x.get("distance") if x.get("distance") and x.get("distance") != 999 else float("inf"),
+            x.get("distance") == 999,  # Sort GPS matches before token matches
+            x.get("fullName", "")  # Then alphabetically
+        ))
+        
         return jsonify(result)
 
     @app.route("/api/donors/by-city/<city>", methods=["GET"])
@@ -536,9 +805,9 @@ def create_app():
             inventory[blood_group] += 1
         return jsonify(inventory)
 
-    # ==================== STATIC DATA: BLOOD BANKS ====================
-    # blood banks remain hardcoded for now
-    # blood banks stored in database; only verified entries are returned
+    # ==================== BLOOD BANKS - DYNAMIC DATA ====================
+    # blood banks are now stored in database with real data
+    # verified entries are returned based on verification status
     @app.route("/api/blood-banks", methods=["GET", "POST"])
     def blood_banks():
         if request.method == "POST":
@@ -546,23 +815,153 @@ def create_app():
                 data = request.get_json()
                 if not data:
                     return jsonify({"error": "invalid JSON"}), 400
+
                 user_id = data.get("userId")
-                user = User.query.get(user_id) if user_id else None
-                if not user or user.role != "admin":
-                    return jsonify({"error": "Unauthorized"}), 403
+                if not user_id:
+                    return jsonify({"error": "userId is required"}), 400
+
+                user = User.query.get(user_id)
+                if not user:
+                    return jsonify({"error": f"User not found with id {user_id}"}), 404
+
+                if user.role != "admin":
+                    return jsonify({"error": f"User role is '{user.role}', admin access required"}), 403
+
+                # Validate required fields
+                required_fields = ['name', 'city', 'address', 'phone']
+                missing_fields = [f for f in required_fields if not data.get(f)]
+                if missing_fields:
+                    return jsonify({"error": f"Missing required fields: {', '.join(missing_fields)}"}), 400
+
                 bank = BloodBank.from_dict(data)
                 db.session.add(bank)
                 db.session.commit()
                 return jsonify(bank.to_dict()), 201
+            except ValueError as ve:
+                db.session.rollback()
+                app.logger.error(f"Validation error creating blood bank: {ve}")
+                return jsonify({"error": f"Validation error: {str(ve)}"}), 400
             except Exception as e:
                 db.session.rollback()
-                return jsonify({"error": str(e)}), 400
+                app.logger.error(f"Error creating blood bank: {e}")
+                return jsonify({"error": f"Failed to create blood bank: {str(e)}"}), 500
+
         city = request.args.get("city")
         query = BloodBank.query.filter_by(verified=True)
         if city:
             query = query.filter_by(city=city)
         banks = query.all()
         return jsonify([b.to_dict() for b in banks])
+
+    @app.route("/api/blood-banks/search", methods=["GET"])
+    def search_blood_banks():
+        """Search blood banks by location and blood group inventory.
+        Query parameters:
+        - bloodGroup (optional filter by available blood group)
+        - city (location to search)
+        - lat, lon (float) explicit coordinates
+        - radius (float) search radius in km (default 50)
+        """
+        blood_group = request.args.get("bloodGroup")
+        city = request.args.get("city")
+        lat = request.args.get("lat", type=float)
+        lon = request.args.get("lon", type=float)
+        radius = request.args.get("radius", type=float, default=50.0)
+
+        banks = BloodBank.query.filter_by(verified=True).all()
+
+        # if we have a city but no explicit coords, attempt geocode
+        if (lat is None or lon is None) and city:
+            g_lat, g_lon = geocode_location(city)
+            if g_lat is not None and g_lon is not None:
+                lat, lon = g_lat, g_lon
+
+        result = []
+        for b in banks:
+            dto = b.to_dict()
+            distance = None
+            
+            # Filter by blood group if specified
+            if blood_group:
+                inventory = dto.get("inventory", {})
+                if inventory.get(blood_group, 0) <= 0:
+                    continue
+            
+            # Location matching - use city filters
+            if city and not _location_matches(b.city or "", city):
+                # Try with latitude/longitude if available
+                if lat is None or lon is None:
+                    continue
+            
+            # If we have coordinates, calculate distance
+            if lat is not None and lon is not None:
+                # For blood banks, use city as approximate location
+                bank_lat, bank_lon = geocode_location(b.city or b.address or "")
+                if bank_lat is not None and bank_lon is not None:
+                    distance = haversine(lat, lon, bank_lat, bank_lon)
+                    if distance > radius:
+                        continue
+            
+            dto["distance"] = distance
+            result.append(dto)
+
+        # sort by distance
+        result.sort(key=lambda x: x.get("distance") if x.get("distance") is not None else float("inf"))
+        return jsonify(result)
+
+    @app.route("/api/blood-banks/<int:bank_id>", methods=["GET", "PUT", "DELETE"])
+    def blood_bank_detail(bank_id):
+        """Get, update, or delete a blood bank."""
+        try:
+            bank = BloodBank.query.get(bank_id)
+            if not bank:
+                return jsonify({"error": "Blood bank not found"}), 404
+            
+            if request.method == "GET":
+                return jsonify(bank.to_dict()), 200
+            
+            elif request.method == "PUT":
+                data = request.get_json() or {}
+                user_id = data.get("userId")
+                user = User.query.get(user_id) if user_id else None
+                if not user or user.role != "admin":
+                    return jsonify({"error": "Unauthorized"}), 403
+                
+                # Update fields
+                for field in ['name', 'city', 'address', 'phone', 'verified']:
+                    if field in data:
+                        setattr(bank, field, data[field])
+                
+                # Update inventory if provided
+                if 'inventory' in data:
+                    inventory = data['inventory']
+                    bank.aPositive = inventory.get('A+', bank.aPositive)
+                    bank.aNegative = inventory.get('A-', bank.aNegative)
+                    bank.bPositive = inventory.get('B+', bank.bPositive)
+                    bank.bNegative = inventory.get('B-', bank.bNegative)
+                    bank.abPositive = inventory.get('AB+', bank.abPositive)
+                    bank.abNegative = inventory.get('AB-', bank.abNegative)
+                    bank.oPositive = inventory.get('O+', bank.oPositive)
+                    bank.oNegative = inventory.get('O-', bank.oNegative)
+                
+                db.session.commit()
+                return jsonify(bank.to_dict()), 200
+            
+            elif request.method == "DELETE":
+                data = request.get_json() or {}
+                user_id = data.get("userId")
+                user = User.query.get(user_id) if user_id else None
+                if not user or user.role != "admin":
+                    return jsonify({"error": "Unauthorized"}), 403
+                
+                db.session.delete(bank)
+                db.session.commit()
+                return jsonify({"message": "Blood bank deleted"}), 200
+        
+        except Exception as e:
+            db.session.rollback()
+            app.logger.error(f"Blood bank detail error: {e}")
+            return jsonify({"error": str(e)}), 400
 
     # camps are stored in the database and managed by admin
     @app.route("/api/camps", methods=["GET", "POST"])
@@ -604,6 +1003,298 @@ def create_app():
         """Get all receiver requests that a particular donor has responded to."""
         receivers = Receiver.query.filter_by(donorId=donor_id).all()
         return jsonify([r.to_dict() for r in receivers])
+
+    # ==================== NOTIFICATION ENDPOINTS ====================
+    @app.route("/api/notifications/donor/<int:donor_id>", methods=["GET"])
+    @token_required
+    def get_donor_notifications(donor_id):
+        """Get all notifications for a donor."""
+        # Verify donor belongs to authenticated user
+        donor = Donor.query.get(donor_id)
+        if not donor or donor.userId != request.user_id:
+            return jsonify({"error": "Forbidden"}), 403
+        
+        notifications = Notification.query.filter_by(donorId=donor_id).order_by(Notification.createdAt.desc()).all()
+        return jsonify([n.to_dict() for n in notifications]), 200
+
+    @app.route("/api/notifications/<int:notification_id>/mark-read", methods=["PUT"])
+    @token_required
+    def mark_notification_read(notification_id):
+        """Mark a notification as read."""
+        notification = Notification.query.get(notification_id)
+        if not notification:
+            return jsonify({"error": "Notification not found"}), 404
+        
+        # Verify donor belongs to authenticated user
+        donor = Donor.query.get(notification.donorId)
+        if not donor or donor.userId != request.user_id:
+            return jsonify({"error": "Forbidden"}), 403
+        
+        notification.status = "read"
+        db.session.commit()
+        return jsonify(notification.to_dict()), 200
+
+    @app.route("/api/notifications/donor/<int:donor_id>/unread-count", methods=["GET"])
+    @token_required
+    def get_unread_notification_count(donor_id):
+        """Get count of unread notifications for a donor."""
+        # Verify donor belongs to authenticated user
+        donor = Donor.query.get(donor_id)
+        if not donor or donor.userId != request.user_id:
+            return jsonify({"error": "Forbidden"}), 403
+        
+        count = Notification.query.filter_by(donorId=donor_id, status="unread").count()
+        return jsonify({"donorId": donor_id, "unreadCount": count}), 200
+
+    # ==================== DONOR ELIGIBILITY & STATS ENDPOINTS ====================
+    @app.route("/api/donors/<int:donor_id>/eligibility", methods=["GET"])
+    def check_eligibility(donor_id):
+        """Check if a donor is eligible to donate."""
+        donor = Donor.query.get(donor_id)
+        if not donor:
+            return jsonify({"error": "Donor not found"}), 404
+        
+        is_eligible, message, eligible_date = check_donor_eligibility(donor)
+        return jsonify({
+            "donorId": donor_id,
+            "isEligible": is_eligible,
+            "message": message,
+            "eligibleDate": eligible_date
+        }), 200
+
+    @app.route("/api/donors/<int:donor_id>/stats", methods=["GET"])
+    def get_donor_stats(donor_id):
+        """Get donor statistics."""
+        stats = DonorStats.query.filter_by(donorId=donor_id).first()
+        if not stats:
+            stats = calculate_donor_stats(donor_id)
+        
+        if stats:
+            return jsonify(stats.to_dict()), 200
+        return jsonify({"error": "Could not calculate stats"}), 500
+
+    @app.route("/api/donors/<int:donor_id>/response-probability", methods=["GET"])
+    def get_response_probability(donor_id):
+        """Get ML-predicted probability of donor responding (0-1)."""
+        donor = Donor.query.get(donor_id)
+        if not donor:
+            return jsonify({"error": "Donor not found"}), 404
+        
+        probability = predict_donor_response_probability(donor_id)
+        return jsonify({
+            "donorId": donor_id,
+            "responseProbability": probability,
+            "percentile": f"{probability * 100:.1f}%"
+        }), 200
+
+    # ==================== FEEDBACK ENDPOINTS ====================
+    @app.route("/api/feedback", methods=["POST"])
+    @token_required
+    def submit_feedback():
+        """Submit feedback/rating for another user."""
+        data = request.get_json()
+        try:
+            feedback = Feedback(
+                fromUserId=request.user_id,
+                toUserId=data.get("toUserId"),
+                transactionId=data.get("transactionId"),
+                rating=int(data.get("rating", 0)),
+                comment=data.get("comment"),
+                type=data.get("type")  # response_speed, reliability, communication, etc
+            )
+            db.session.add(feedback)
+            db.session.commit()
+            
+            # Recalculate stats for the user being rated
+            receiver_donor = Donor.query.filter_by(userId=data.get("toUserId")).first()
+            if receiver_donor:
+                calculate_donor_stats(receiver_donor.id)
+            
+            return jsonify(feedback.to_dict()), 201
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({"error": str(e)}), 400
+
+    @app.route("/api/feedback/for/<int:user_id>", methods=["GET"])
+    def get_user_feedback(user_id):
+        """Get all feedback received by a user."""
+        feedback_list = Feedback.query.filter_by(toUserId=user_id).order_by(Feedback.createdAt.desc()).all()
+        return jsonify([f.to_dict() for f in feedback_list]), 200
+
+    @app.route("/api/feedback/from/<int:user_id>", methods=["GET"])
+    def get_user_given_feedback(user_id):
+        """Get all feedback given by a user."""
+        feedback_list = Feedback.query.filter_by(fromUserId=user_id).order_by(Feedback.createdAt.desc()).all()
+        return jsonify([f.to_dict() for f in feedback_list]), 200
+
+    @app.route("/api/feedback/<int:feedback_id>", methods=["DELETE"])
+    @token_required
+    def delete_feedback(feedback_id):
+        """Delete feedback (only by submitter)."""
+        feedback = Feedback.query.get(feedback_id)
+        if not feedback:
+            return jsonify({"error": "Feedback not found"}), 404
+        
+        if feedback.fromUserId != request.user_id:
+            return jsonify({"error": "Forbidden"}), 403
+        
+        db.session.delete(feedback)
+        db.session.commit()
+        
+        # Recalculate stats for the user who was rated
+        receiver_donor = Donor.query.filter_by(userId=feedback.toUserId).first()
+        if receiver_donor:
+            calculate_donor_stats(receiver_donor.id)
+        
+        return jsonify({"message": "Feedback deleted"}), 200
+
+    # ==================== ADVANCED SEARCH & FILTERS ====================
+    @app.route("/api/donors/search/advanced", methods=["POST"])
+    @token_required
+    def advanced_donor_search():
+        """Advanced donor search with multiple filters."""
+        filters = request.get_json()
+        try:
+            query = Donor.query
+            
+            # Filter by blood group
+            if filters.get("bloodGroup"):
+                query = query.filter_by(bloodGroup=filters["bloodGroup"])
+            
+            # Filter by city
+            if filters.get("city"):
+                query = query.filter(Donor.city.ilike(f"%{filters['city']}%"))
+            
+            # Filter by availability status
+            if filters.get("availabilityStatus"):
+                query = query.filter_by(availabilityStatus=filters["availabilityStatus"])
+            
+            # Filter by gender
+            if filters.get("gender"):
+                query = query.filter_by(gender=filters["gender"])
+            
+            # Filter by age range
+            if filters.get("minAge") or filters.get("maxAge"):
+                min_age = int(filters.get("minAge", 0))
+                max_age = int(filters.get("maxAge", 100))
+                query = query.filter(Donor.age.cast(db.Integer).between(min_age, max_age))
+            
+            # Filter by minimum rating
+            if filters.get("minRating"):
+                min_rating = float(filters["minRating"])
+                sub_query = db.session.query(DonorStats).filter(DonorStats.averageRating >= min_rating).all()
+                donor_ids = [s.donorId for s in sub_query]
+                query = query.filter(Donor.id.in_(donor_ids))
+            
+            # Filter by minimum reliability
+            if filters.get("minReliability"):
+                min_reliability = float(filters["minReliability"])
+                sub_query = db.session.query(DonorStats).filter(DonorStats.reliability >= min_reliability).all()
+                donor_ids = [s.donorId for s in sub_query]
+                query = query.filter(Donor.id.in_(donor_ids))
+            
+            # Get results
+            donors = query.all()
+            
+            # Sort by rating if requested
+            if filters.get("sortBy") == "rating":
+                donor_ids = [d.id for d in donors]
+                stats = db.session.query(DonorStats).filter(DonorStats.donorId.in_(donor_ids)).all()
+                stats_dict = {s.donorId: s.averageRating for s in stats}
+                donors.sort(key=lambda d: stats_dict.get(d.id, 0), reverse=True)
+            
+            # Log search history
+            import json
+            search_history = SearchHistory(
+                userId=request.user_id,
+                searchType="donor",
+                bloodGroup=filters.get("bloodGroup"),
+                city=filters.get("city"),
+                filters=json.dumps(filters)
+            )
+            db.session.add(search_history)
+            db.session.commit()
+            
+            return jsonify([d.to_dict() for d in donors]), 200
+        except Exception as e:
+            return jsonify({"error": str(e)}), 400
+
+    # ==================== SAVED DONORS/RECEIVERS ====================
+    @app.route("/api/saved-donors", methods=["GET"])
+    @token_required
+    def get_saved_donors():
+        """Get all saved donors for current user."""
+        saved = SavedDonor.query.filter_by(userId=request.user_id).all()
+        donors_data = [s.to_dict() for s in saved]
+        # Filter out None values in case donor was deleted
+        donors_data = [d for d in donors_data if d is not None]
+        return jsonify(donors_data), 200
+
+    @app.route("/api/saved-donors/<int:donor_id>", methods=["POST", "DELETE"])
+    @token_required
+    def toggle_saved_donor(donor_id):
+        """Save or unsave a donor."""
+        if request.method == "POST":
+            existing = SavedDonor.query.filter_by(userId=request.user_id, donorId=donor_id).first()
+            if existing:
+                return jsonify({"message": "Already saved"}), 200
+            
+            saved = SavedDonor(userId=request.user_id, donorId=donor_id)
+            db.session.add(saved)
+            db.session.commit()
+            return jsonify(saved.to_dict()), 201
+        else:  # DELETE
+            saved = SavedDonor.query.filter_by(userId=request.user_id, donorId=donor_id).first()
+            if saved:
+                db.session.delete(saved)
+                db.session.commit()
+            return jsonify({"message": "Unsaved"}), 200
+
+    @app.route("/api/saved-receivers", methods=["GET"])
+    @token_required
+    def get_saved_receivers():
+        """Get all saved receivers for current user."""
+        saved = SavedReceiver.query.filter_by(userId=request.user_id).all()
+        receivers_data = [s.to_dict() for s in saved]
+        # Filter out entries where receiver was deleted
+        receivers_data = [r for r in receivers_data if r.get("receiver") is not None]
+        return jsonify(receivers_data), 200
+
+    @app.route("/api/saved-receivers/<int:receiver_id>", methods=["POST", "DELETE"])
+    @token_required
+    def toggle_saved_receiver(receiver_id):
+        """Save or unsave a receiver."""
+        if request.method == "POST":
+            existing = SavedReceiver.query.filter_by(userId=request.user_id, receiverId=receiver_id).first()
+            if existing:
+                return jsonify({"message": "Already saved"}), 200
+            
+            saved = SavedReceiver(userId=request.user_id, receiverId=receiver_id)
+            db.session.add(saved)
+            db.session.commit()
+            return jsonify(saved.to_dict()), 201
+        else:  # DELETE
+            saved = SavedReceiver.query.filter_by(userId=request.user_id, receiverId=receiver_id).first()
+            if saved:
+                db.session.delete(saved)
+                db.session.commit()
+            return jsonify({"message": "Unsaved"}), 200
+
+    # ==================== SEARCH HISTORY ====================
+    @app.route("/api/search-history", methods=["GET"])
+    @token_required
+    def get_search_history():
+        """Get current user's search history."""
+        history = SearchHistory.query.filter_by(userId=request.user_id).order_by(SearchHistory.searchedAt.desc()).limit(20).all()
+        return jsonify([h.to_dict() for h in history]), 200
+
+    @app.route("/api/search-history", methods=["DELETE"])
+    @token_required
+    def clear_search_history():
+        """Clear current user's search history."""
+        SearchHistory.query.filter_by(userId=request.user_id).delete()
+        db.session.commit()
+        return jsonify({"message": "Search history cleared"}), 200
 
     @app.route("/api/camps/<int:camp_id>", methods=["PUT", "DELETE"])
     def camp_detail(camp_id):
@@ -774,4 +1465,10 @@ if __name__ == "__main__":
     # create DB/tables automatically (development only)
     with app.app_context():
         db.create_all()
-    app.run(debug=True, port=5000)
+
+    # Get settings from environment
+    flask_env = os.environ.get("FLASK_ENV", "development")
+    debug_mode = flask_env != "production"
+    port = int(os.environ.get("FLASK_PORT", 5000))
+
+    app.run(debug=debug_mode, port=port)

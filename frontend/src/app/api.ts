@@ -68,10 +68,21 @@ async function request(path: string, options: RequestInit = {}) {
     ...options,
     headers,
   });
-  
+
   if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`API error ${res.status}: ${text}`);
+    const contentType = res.headers.get('content-type');
+    let errorMessage = `API error ${res.status}`;
+
+    try {
+      const data = contentType?.includes('application/json')
+        ? await res.json()
+        : { error: await res.text() };
+      errorMessage = data.error || errorMessage;
+    } catch (e) {
+      // If parsing fails, use default message
+    }
+
+    throw new Error(errorMessage);
   }
   return res.json();
 }
@@ -135,6 +146,14 @@ export function createDonor(donor: Donor) {
   }) as Promise<DonorResponse>;
 }
 
+// update existing donor profile (partial allowed)
+export function updateDonor(donorId: number, updates: Partial<Donor>) {
+  return request(`/api/donors/${donorId}`, {
+    method: "PUT",
+    body: JSON.stringify(updates),
+  }) as Promise<Donor>;
+}
+
 export function getDonorByUser(userId: number) {
   return request(`/api/donors/by-user/${userId}`);
 }
@@ -171,6 +190,14 @@ export function updateReceiverRequest(
   });
 }
 
+export function deleteReceiverRequest(requestId: number, userId?: number) {
+  const body = userId !== undefined ? { userId } : {};
+  return request(`/api/receivers/${requestId}`, {
+    method: "DELETE",
+    body: Object.keys(body).length > 0 ? JSON.stringify(body) : undefined,
+  });
+}
+
 export function getStats() {
   return request("/api/stats");
 }
@@ -200,6 +227,16 @@ export interface BloodBank {
   city: string;
   address: string;
   phone: string;
+  inventory?: {
+    "A+": number;
+    "A-": number;
+    "B+": number;
+    "B-": number;
+    "AB+": number;
+    "AB-": number;
+    "O+": number;
+    "O-": number;
+  };
   verified?: boolean;
 }
 
@@ -223,10 +260,22 @@ export function updateBloodBank(bankId: number, updates: Partial<BloodBank>) {
   });
 }
 
-export function deleteBloodBank(bankId: number) {
+export function deleteBloodBank(bankId: number, userId?: number) {
+  const body = userId !== undefined ? { userId } : {};
   return request(`/api/blood-banks/${bankId}`, {
     method: "DELETE",
+    body: JSON.stringify(body),
   });
+}
+
+export function searchBloodBanks(bloodGroup?: string, city?: string, lat?: number, lon?: number, radius?: number) {
+  const params = new URLSearchParams();
+  if (bloodGroup) params.append("bloodGroup", bloodGroup);
+  if (city) params.append("city", city);
+  if (lat !== undefined) params.append("lat", lat.toString());
+  if (lon !== undefined) params.append("lon", lon.toString());
+  if (radius !== undefined) params.append("radius", radius.toString());
+  return request(`/api/blood-banks/search?${params}`);
 }
 
 export function listDonationCamps(city?: string) {
@@ -266,15 +315,129 @@ export function updateCamp(campId: number, updates: Partial<Camp>) {
   });
 }
 
-export function deleteCamp(campId: number) {
+export function deleteCamp(campId: number, userId?: number) {
+  const body = userId !== undefined ? { userId } : {};
   return request(`/api/camps/${campId}`, {
     method: "DELETE",
+    body: Object.keys(body).length > 0 ? JSON.stringify(body) : undefined,
   });
 }
+
+// ==================== NOTIFICATION API ====================
+
+export function getDonorNotifications(donorId: number) {
+  return request(`/api/notifications/donor/${donorId}`);
+}
+
+export function getUnreadNotificationCount(donorId: number) {
+  return request(`/api/notifications/donor/${donorId}/unread-count`);
+}
+
+export function markNotificationAsRead(notificationId: number) {
+  return request(`/api/notifications/${notificationId}/mark-read`, {
+    method: "PUT",
+    body: JSON.stringify({}),
+  });
+}
+
 export function getBloodInventory() {
   return request("/api/blood-inventory");
 }
 
 export function getBloodDemandPrediction() {
   return request("/api/blood-demand-prediction");
+}
+
+// ==================== ELIGIBILITY & STATS API ====================
+
+export function checkDonorEligibility(donorId: number) {
+  return request(`/api/donors/${donorId}/eligibility`);
+}
+
+export function getDonorStats(donorId: number) {
+  return request(`/api/donors/${donorId}/stats`);
+}
+
+export function getDonorResponseProbability(donorId: number) {
+  return request(`/api/donors/${donorId}/response-probability`);
+}
+
+// ==================== FEEDBACK API ====================
+
+export function submitFeedback(toUserId: number, rating: number, comment: string, transactionId?: number, type?: string) {
+  return request("/api/feedback", {
+    method: "POST",
+    body: JSON.stringify({ toUserId, rating, comment, transactionId, type }),
+  });
+}
+
+export function getUserFeedback(userId: number) {
+  return request(`/api/feedback/for/${userId}`);
+}
+
+export function getUserGivenFeedback(userId: number) {
+  return request(`/api/feedback/from/${userId}`);
+}
+
+export function deleteFeedback(feedbackId: number) {
+  return request(`/api/feedback/${feedbackId}`, {
+    method: "DELETE",
+  });
+}
+
+// ==================== ADVANCED SEARCH API ====================
+
+export function advancedDonorSearch(filters: any) {
+  return request("/api/donors/search/advanced", {
+    method: "POST",
+    body: JSON.stringify(filters),
+  });
+}
+
+// ==================== SAVED DONORS/RECEIVERS API ====================
+
+export function getSavedDonors() {
+  return request("/api/saved-donors");
+}
+
+export function saveDonor(donorId: number) {
+  return request(`/api/saved-donors/${donorId}`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
+export function unsaveDonor(donorId: number) {
+  return request(`/api/saved-donors/${donorId}`, {
+    method: "DELETE",
+  });
+}
+
+export function getSavedReceivers() {
+  return request("/api/saved-receivers");
+}
+
+export function saveReceiver(receiverId: number) {
+  return request(`/api/saved-receivers/${receiverId}`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
+export function unsaveReceiver(receiverId: number) {
+  return request(`/api/saved-receivers/${receiverId}`, {
+    method: "DELETE",
+  });
+}
+
+// ==================== SEARCH HISTORY API ====================
+
+export function getSearchHistory() {
+  return request("/api/search-history");
+}
+
+export function clearSearchHistory() {
+  return request("/api/search-history", {
+    method: "DELETE",
+  });
 }

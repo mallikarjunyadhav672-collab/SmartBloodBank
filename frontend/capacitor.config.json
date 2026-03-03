@@ -1,0 +1,6 @@
+{
+  "appId": "com.smartbloodbank.app",
+  "appName": "Smart Blood Bank",
+  "webDir": "dist",
+  "bundledWebRuntime": false
+}

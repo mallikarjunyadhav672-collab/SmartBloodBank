@@ -11,6 +11,10 @@ import { PredictiveAnalytics } from "./components/PredictiveAnalytics";
 import { About } from "./components/About";
 import { Login } from "./components/Login";
 import { ForgotPassword } from "./components/ForgotPassword";
+import { AdvancedSearch } from "./components/AdvancedSearch";
+import { SearchHistory } from "./components/SearchHistory";
+import { SavedDonors } from "./components/SavedDonors";
+import { SavedReceivers } from "./components/SavedReceivers";
 import { ProtectedRoute, PublicRoute } from "./components/ProtectedRoute";
 
 export const router = createBrowserRouter([
@@ -90,6 +94,38 @@ export const router = createBrowserRouter([
         element: (
           <ProtectedRoute>
             <PredictiveAnalytics />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: "search",
+        element: (
+          <ProtectedRoute>
+            <AdvancedSearch />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: "search-history",
+        element: (
+          <ProtectedRoute>
+            <SearchHistory />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: "saved-donors",
+        element: (
+          <ProtectedRoute>
+            <SavedDonors />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: "saved-receivers",
+        element: (
+          <ProtectedRoute>
+            <SavedReceivers />
           </ProtectedRoute>
         ),
       },

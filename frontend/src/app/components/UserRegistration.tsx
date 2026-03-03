@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { ArrowLeft, CheckCircle } from "lucide-react";
+import logo from "../../assets/logo.svg";
 import { useAuth } from "../contexts/AuthContext";
 
 export function UserRegistration() {
@@ -45,8 +46,16 @@ export function UserRegistration() {
     }
     if (!formData.password) {
       newErrors.password = "Password is required";
-    } else if (formData.password.length < 6) {
-      newErrors.password = "Password must be at least 6 characters";
+    } else if (formData.password.length < 8) {
+      newErrors.password = "Password must be at least 8 characters";
+    } else if (!/[A-Z]/.test(formData.password)) {
+      newErrors.password = "Password must include at least one uppercase letter";
+    } else if (!/[a-z]/.test(formData.password)) {
+      newErrors.password = "Password must include at least one lowercase letter";
+    } else if (!/\d/.test(formData.password)) {
+      newErrors.password = "Password must include at least one number";
+    } else if (!/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(formData.password)) {
+      newErrors.password = "Password must include at least one special character (!@#$%^&* etc)";
     }
     if (formData.password !== formData.confirmPassword) {
       newErrors.confirmPassword = "Passwords do not match";
@@ -95,17 +104,17 @@ export function UserRegistration() {
 
   if (success) {
     return (
-      <div className="pt-16 min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="max-w-md mx-auto px-4">
-          <div className="bg-white rounded-xl shadow-lg p-8 text-center">
+      <div className="pt-16 min-h-screen bg-background flex items-center justify-center">
+        <div className="max-w-md sm:max-w-lg md:max-w-xl lg:max-w-2xl mx-auto px-4">
+          <div className="bg-white rounded-lg border border-border shadow-sm p-8 text-center">
             <div className="flex justify-center mb-4">
-              <CheckCircle className="w-16 h-16 text-green-600" />
+              <CheckCircle className="w-16 h-16 text-success-600" />
             </div>
-            <h2 className="text-2xl font-bold text-gray-900 mb-2">Registration Successful!</h2>
-            <p className="text-gray-600 mb-4">
+            <h2 className="text-2xl font-bold text-foreground mb-2">Registration Successful!</h2>
+            <p className="text-muted-foreground mb-4">
               Welcome, {formData.fullName}! Redirecting you now...
             </p>
-            <p className="text-sm text-gray-500">
+            <p className="text-sm text-muted-foreground">
               You'll be taken to complete your {formData.role} profile.
             </p>
           </div>
@@ -115,38 +124,42 @@ export function UserRegistration() {
   }
 
   return (
-    <div className="pt-16 min-h-screen bg-gray-50">
-      <div className="max-w-2xl mx-auto px-4 py-12">
+    <div className="pt-16 min-h-screen bg-background flex items-center justify-center">
+      <div className="w-full max-w-2xl mx-auto px-4 py-12">
         <Link
           to="/"
-          className="inline-flex items-center gap-2 text-red-600 hover:text-red-700 mb-6"
+          className="inline-flex items-center gap-2 text-primary hover:text-primary-700 mb-8 font-medium transition-colors"
         >
-          <ArrowLeft className="w-5 h-5" />
+          <ArrowLeft className="w-4 h-4" />
           Back to Home
         </Link>
 
-        <div className="bg-white rounded-xl shadow-lg p-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Create Account</h1>
-          <p className="text-gray-600 mb-8">Join us in saving lives together</p>
+        <div className="bg-white rounded-lg border border-border shadow-sm p-8">
+          <div className="flex justify-center mb-6">
+            <img src={logo} alt="BloodLink Logo" className="w-12 h-12" />
+          </div>
+
+          <h1 className="text-3xl font-bold text-foreground mb-2 text-center">Create Account</h1>
+          <p className="text-muted-foreground text-center mb-8">Join us in saving lives together</p>
 
           {errors.submit && (
-            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
-              <p className="text-sm text-red-700">{errors.submit}</p>
+            <div className="mb-6 p-4 bg-destructive-50 border border-destructive-200 rounded-lg">
+              <p className="text-sm text-destructive-700">{errors.submit}</p>
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-6">
+          <form onSubmit={handleSubmit} className="space-y-5">
             {/* Role Selection */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Select Role *
+              <label className="block text-sm font-medium text-foreground mb-2">
+                Select Role
               </label>
               <select
                 name="role"
                 value={formData.role}
                 onChange={handleChange}
                 disabled={loading}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
+                className="w-full px-4 py-2.5 border border-border bg-surface rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent disabled:bg-muted disabled:cursor-not-allowed text-foreground"
               >
                 <option value="donor">Blood Donor</option>
                 <option value="receiver">Blood Receiver / Hospital</option>
@@ -156,8 +169,8 @@ export function UserRegistration() {
 
             {/* Full Name */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Full Name *
+              <label className="block text-sm font-medium text-foreground mb-2">
+                Full Name
               </label>
               <input
                 type="text"
@@ -165,18 +178,18 @@ export function UserRegistration() {
                 value={formData.fullName}
                 onChange={handleChange}
                 disabled={loading}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
+                className="w-full px-4 py-2.5 border border-border bg-surface rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent disabled:bg-muted disabled:cursor-not-allowed text-foreground placeholder-muted-foreground transition-colors"
                 placeholder="Enter your full name"
               />
               {errors.fullName && (
-                <p className="text-red-600 text-sm mt-1">{errors.fullName}</p>
+                <p className="text-destructive text-sm mt-2">{errors.fullName}</p>
               )}
             </div>
 
             {/* Email */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Email Address *
+              <label className="block text-sm font-medium text-foreground mb-2">
+                Email Address
               </label>
               <input
                 type="email"
@@ -184,16 +197,16 @@ export function UserRegistration() {
                 value={formData.email}
                 onChange={handleChange}
                 disabled={loading}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
-                placeholder="your.email@example.com"
+                className="w-full px-4 py-2.5 border border-border bg-surface rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent disabled:bg-muted disabled:cursor-not-allowed text-foreground placeholder-muted-foreground transition-colors"
+                placeholder="you@example.com"
               />
-              {errors.email && <p className="text-red-600 text-sm mt-1">{errors.email}</p>}
+              {errors.email && <p className="text-destructive text-sm mt-2">{errors.email}</p>}
             </div>
 
             {/* Password */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Password *
+              <label className="block text-sm font-medium text-foreground mb-2">
+                Password
               </label>
               <input
                 type="password"
@@ -201,18 +214,18 @@ export function UserRegistration() {
                 value={formData.password}
                 onChange={handleChange}
                 disabled={loading}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
-                placeholder="Minimum 6 characters"
+                className="w-full px-4 py-2.5 border border-border bg-surface rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent disabled:bg-muted disabled:cursor-not-allowed text-foreground placeholder-muted-foreground transition-colors"
+                placeholder="Min 8 chars: uppercase, lowercase, number, special char"
               />
               {errors.password && (
-                <p className="text-red-600 text-sm mt-1">{errors.password}</p>
+                <p className="text-destructive text-sm mt-2">{errors.password}</p>
               )}
             </div>
 
             {/* Confirm Password */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Confirm Password *
+              <label className="block text-sm font-medium text-foreground mb-2">
+                Confirm Password
               </label>
               <input
                 type="password"
@@ -220,11 +233,11 @@ export function UserRegistration() {
                 value={formData.confirmPassword}
                 onChange={handleChange}
                 disabled={loading}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
+                className="w-full px-4 py-2.5 border border-border bg-surface rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent disabled:bg-muted disabled:cursor-not-allowed text-foreground placeholder-muted-foreground transition-colors"
                 placeholder="Re-enter your password"
               />
               {errors.confirmPassword && (
-                <p className="text-red-600 text-sm mt-1">{errors.confirmPassword}</p>
+                <p className="text-destructive text-sm mt-2">{errors.confirmPassword}</p>
               )}
             </div>
 
@@ -236,33 +249,33 @@ export function UserRegistration() {
                 checked={formData.termsAccepted}
                 onChange={handleChange}
                 disabled={loading}
-                className="mt-1 w-4 h-4 text-red-600 border-gray-300 rounded focus:ring-red-500 disabled:cursor-not-allowed"
+                className="mt-1 w-4 h-4 border border-border rounded accent-primary cursor-pointer disabled:cursor-not-allowed"
               />
-              <label className="text-sm text-gray-700">
+              <label className="text-sm text-muted-foreground">
                 I accept the{" "}
-                <Link to="/terms" className="text-red-600 hover:underline">
+                <Link to="/terms" className="text-primary hover:text-primary-700 font-medium transition-colors">
                   Terms & Conditions
                 </Link>{" "}
-                and understand the responsibilities of being part of this platform *
+                and understand the responsibilities of being part of this platform
               </label>
             </div>
             {errors.termsAccepted && (
-              <p className="text-red-600 text-sm">{errors.termsAccepted}</p>
+              <p className="text-destructive text-sm">{errors.termsAccepted}</p>
             )}
 
             {/* Submit Button */}
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-red-600 text-white py-3 rounded-lg font-semibold hover:bg-red-700 transition disabled:bg-gray-400 disabled:cursor-not-allowed"
+              className="w-full bg-primary text-primary-foreground py-2.5 rounded-md font-medium hover:bg-primary-700 disabled:bg-muted disabled:cursor-not-allowed disabled:text-muted-foreground transition-colors mt-6"
             >
               {loading ? "Creating Account..." : "Register Account"}
             </button>
           </form>
 
-          <p className="text-center text-gray-600 mt-6">
+          <p className="text-center text-muted-foreground mt-6 text-sm">
             Already have an account?{" "}
-            <Link to="/login" className="text-red-600 hover:underline font-medium">
+            <Link to="/login" className="text-primary hover:text-primary-700 font-medium transition-colors">
               Login here
             </Link>
           </p>

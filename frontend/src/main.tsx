@@ -4,4 +4,14 @@
   import "./styles/index.css";
 
   createRoot(document.getElementById("root")!).render(<App />);
+
+// Register a simple service worker for PWA support (optional)
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch((err) => {
+      // service worker registration failed (optional silent fail)
+      console.warn('SW registration failed:', err);
+    });
+  });
+}
   

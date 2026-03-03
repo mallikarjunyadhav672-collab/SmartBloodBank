@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router";
-import { ArrowLeft, Droplet, AlertCircle } from "lucide-react";
+import { ArrowLeft, AlertCircle } from "lucide-react";
+import logo from "../../assets/logo.svg";
 import { useAuth } from "../contexts/AuthContext";
 
 export function Login() {
@@ -33,7 +34,6 @@ export function Login() {
 
     try {
       await login(formData.email, formData.password);
-      // Redirect will happen automatically via PublicRoute when user is set
       navigate("/");
     } catch (err: any) {
       const msg = err instanceof Error ? err.message : "Login failed. Please try again.";
@@ -50,41 +50,46 @@ export function Login() {
   };
 
   return (
-    <div className="pt-16 min-h-screen bg-gray-50">
-      <div className="max-w-md mx-auto px-4 py-12">
+    <div className="pt-16 min-h-screen bg-surface flex items-center justify-center">
+      <div className="w-full max-w-md sm:max-w-lg md:max-w-xl lg:max-w-2xl px-4 py-12">
+        {/* Back Link */}
         <Link
           to="/"
-          className="inline-flex items-center gap-2 text-red-600 hover:text-red-700 mb-6"
+          className="inline-flex items-center gap-2 text-primary hover:text-primary-600 mb-8 font-medium transition-colors"
         >
-          <ArrowLeft className="w-5 h-5" />
+          <ArrowLeft className="w-4 h-4" />
           Back to Home
         </Link>
 
-        <div className="bg-white rounded-xl shadow-lg p-8">
+        {/* Login Card */}
+        <div className="bg-white rounded-lg border border-border shadow-sm p-8">
           {/* Logo */}
-          <div className="flex justify-center mb-6">
-            <div className="bg-red-600 p-4 rounded-2xl">
-              <Droplet className="w-12 h-12 text-white fill-white" />
-            </div>
+          <div className="flex justify-center mb-8">
+            <img src={logo} alt="BloodLink Logo" className="w-12 h-12" />
           </div>
 
-          <h1 className="text-3xl font-bold text-gray-900 mb-2 text-center">
-            Welcome Back
+          {/* Heading */}
+          <h1 className="text-3xl font-bold text-foreground mb-2 text-center">
+            Sign In
           </h1>
-          <p className="text-gray-600 mb-8 text-center">Sign in to your account</p>
+          <p className="text-muted-foreground text-center mb-8 text-sm">
+            Welcome back to BloodLink
+          </p>
 
+          {/* Error Alert */}
           {error && (
-            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-start gap-3">
-              <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
-              <p className="text-sm text-red-700">{error}</p>
+            <div className="mb-6 p-4 bg-destructive-50 border border-destructive-200 rounded-lg flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 text-destructive mt-0.5 flex-shrink-0" />
+              <p className="text-sm text-destructive-700">{error}</p>
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-6">
-            {/* Email */}
+          {/* Form */}
+          <form onSubmit={handleSubmit} className="space-y-5">
+            {/* Email Input */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Email Address *
+              <label className="block text-sm font-medium text-foreground mb-2">
+                Email Address
               </label>
               <input
                 type="email"
@@ -93,18 +98,18 @@ export function Login() {
                 onChange={handleChange}
                 required
                 disabled={loading}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
-                placeholder="your.email@example.com"
+                className="w-full px-4 py-2.5 border border-border bg-surface rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent disabled:bg-muted disabled:cursor-not-allowed text-foreground placeholder-muted-foreground transition-colors"
+                placeholder="you@example.com"
               />
               {emailError && (
-                <p className="mt-1 text-xs text-red-600">{emailError}</p>
+                <p className="mt-2 text-xs text-destructive">{emailError}</p>
               )}
             </div>
 
-            {/* Password */}
+            {/* Password Input */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Password *
+              <label className="block text-sm font-medium text-foreground mb-2">
+                Password
               </label>
               <input
                 type="password"
@@ -113,38 +118,37 @@ export function Login() {
                 onChange={handleChange}
                 required
                 disabled={loading}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
+                className="w-full px-4 py-2.5 border border-border bg-surface rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent disabled:bg-muted disabled:cursor-not-allowed text-foreground placeholder-muted-foreground transition-colors"
                 placeholder="Enter your password"
               />
               {passwordError && (
-                <p className="mt-1 text-xs text-red-600">{passwordError}</p>
-              )}            </div>
+                <p className="mt-2 text-xs text-destructive">{passwordError}</p>
+              )}
+            </div>
 
             {/* Remember Me & Forgot Password */}
             <div className="flex items-center justify-between">
-              <label className="flex items-center gap-2">
+              <label className="flex items-center gap-2 cursor-pointer">
                 <input
                   type="checkbox"
-                  className="w-4 h-4 text-red-600 border-gray-300 rounded focus:ring-red-500"
+                  className="w-4 h-4 border border-border rounded accent-primary cursor-pointer"
                   disabled={loading}
                 />
-                <span className="text-sm text-gray-700">Remember me</span>
+                <span className="text-sm text-muted-foreground">Remember me</span>
               </label>
-              <button
-                type="button"
-                className="text-sm text-red-600 hover:text-red-700 hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
-                disabled={loading}
-                onClick={() => navigate("/forgot-password")}
+              <Link
+                to="/forgot-password"
+                className="text-sm text-primary hover:text-primary-700 font-medium transition-colors"
               >
                 Forgot password?
-              </button>
+              </Link>
             </div>
 
             {/* Submit Button */}
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-red-600 text-white py-3 rounded-lg font-semibold hover:bg-red-700 transition disabled:bg-gray-400 disabled:cursor-not-allowed"
+              className="w-full bg-primary text-primary-foreground py-2.5 rounded-md font-medium hover:bg-primary-700 disabled:bg-muted disabled:cursor-not-allowed disabled:text-muted-foreground transition-colors mt-6"
             >
               {loading ? "Signing In..." : "Sign In"}
             </button>
@@ -153,43 +157,28 @@ export function Login() {
           {/* Divider */}
           <div className="relative my-6">
             <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-gray-300"></div>
+              <div className="w-full border-t border-border"></div>
             </div>
             <div className="relative flex justify-center text-sm">
-              <span className="px-4 bg-white text-gray-500">Don't have an account?</span>
+              <span className="px-3 bg-white text-muted-foreground">Need an account?</span>
             </div>
           </div>
 
-          {/* Register Links */}
-          <div className="space-y-3">
-            <Link
-              to="/register"
-              className="block w-full text-center border-2 border-red-600 text-red-600 py-3 rounded-lg font-semibold hover:bg-red-50 transition"
-            >
-              Register as Donor/Receiver
+          {/* Register Link */}
+          <Link
+            to="/register"
+            className="block w-full text-center px-4 py-2.5 border border-primary text-primary rounded-md font-medium hover:bg-primary-50 transition-colors"
+          >
+            Create an Account
+          </Link>
+
+          {/* Terms */}
+          <p className="text-xs text-muted-foreground text-center mt-6">
+            By signing in, you agree to our{" "}
+            <Link to="/terms" className="text-primary hover:text-primary-700 font-medium transition-colors">
+              Terms & Conditions
             </Link>
-            <p className="text-xs text-center text-gray-500">
-              By signing in, you agree to our{" "}
-              <Link to="/terms" className="text-red-600 hover:underline">
-                Terms & Conditions
-              </Link>
-            </p>
-          </div>
-
-          {/* Demo Credentials */}
-          <div className="mt-8 pt-6 border-t">
-            <p className="text-xs text-gray-500 text-center mb-3">Demo Credentials:</p>
-            <div className="bg-gray-50 rounded-lg p-4 text-xs space-y-2">
-              <p>
-                <strong className="text-gray-700">Donor:</strong>{" "}
-                <span className="text-gray-600">donor@demo.com / demo123</span>
-              </p>
-              <p>
-                <strong className="text-gray-700">Admin:</strong>{" "}
-                <span className="text-gray-600">admin@demo.com / admin123</span>
-              </p>
-            </div>
-          </div>
+          </p>
         </div>
       </div>
     </div>

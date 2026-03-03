@@ -44,3 +44,35 @@ def send_donation_confirmation(donor_email: str, receiver_name: str):
     body = f"Your blood donation to {receiver_name} has been recorded. Your next eligible donation date is 56 days from now."
     html = f'<h3>Donation Recorded</h3><p>Thank you for helping {receiver_name}! You can donate again after 56 days.</p>'
     return send_email(donor_email, subject, body, html)
+
+
+def send_blood_request_to_donor(donor_email: str, donor_name: str, patient_name: str, blood_group: str, units: int, city: str, distance_km: float = None):
+    """Notify donor about a matching blood request from a receiver."""
+    distance_info = f" ({distance_km:.1f} km away)" if distance_km else ""
+    subject = f"🩸 Urgent: {blood_group} Blood Needed{distance_info}"
+    body = f"Hi {donor_name},\n\nA patient in {city}{distance_info} urgently needs {units} unit(s) of {blood_group} blood.\n\nPlease login to the BloodLink app to respond and help save a life!"
+    html = f"""
+    <h3>🩸 Urgent Blood Request!</h3>
+    <p>Hi <strong>{donor_name}</strong>,</p>
+    <p>A patient named <strong>{patient_name}</strong> in <strong>{city}</strong>{distance_info} urgently needs <strong>{units} unit(s) of {blood_group}</strong> blood.</p>
+    <p>Please login to the BloodLink app to respond and help save a life!</p>
+    <p><em>Time is critical - please respond as soon as possible.</em></p>
+    """
+    return send_email(donor_email, subject, body, html)
+
+
+def send_sms_notification(phone_number: str, donor_name: str, blood_group: str, units: int, city: str):
+    """Send SMS notification to donor about blood request."""
+    message = f"Hi {donor_name}, {blood_group} blood is urgently needed in {city}. {units} units required. Login to BloodLink app to respond!"
+    # Mock SMS implementation - in production use Twilio, AWS SNS, etc.
+    try:
+        current_app.logger.info(f"SMS to {phone_number}: {message}")
+        # In production, integrate with Twilio:
+        # from twilio.rest import Client
+        # client = Client(account_sid, auth_token)
+        # client.messages.create(to=phone_number, from_=twilio_number, body=message)
+        return True
+    except Exception as e:
+        current_app.logger.error(f"Failed to send SMS to {phone_number}: {e}")
+        return False
+

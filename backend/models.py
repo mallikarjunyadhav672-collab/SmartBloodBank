@@ -185,6 +185,15 @@ class BloodBank(db.Model):
     address = db.Column(db.String(200))
     phone = db.Column(db.String(50))
     verified = db.Column(db.Boolean, default=True)
+    # Blood inventory fields (units available for each blood group)
+    aPositive = db.Column(db.Integer, default=0)
+    aNegative = db.Column(db.Integer, default=0)
+    bPositive = db.Column(db.Integer, default=0)
+    bNegative = db.Column(db.Integer, default=0)
+    abPositive = db.Column(db.Integer, default=0)
+    abNegative = db.Column(db.Integer, default=0)
+    oPositive = db.Column(db.Integer, default=0)
+    oNegative = db.Column(db.Integer, default=0)
     createdAt = db.Column(db.DateTime, default=datetime.utcnow)
 
     def to_dict(self):
@@ -196,11 +205,22 @@ class BloodBank(db.Model):
             "address": self.address,
             "phone": self.phone,
             "verified": self.verified,
+            "inventory": {
+                "A+": self.aPositive,
+                "A-": self.aNegative,
+                "B+": self.bPositive,
+                "B-": self.bNegative,
+                "AB+": self.abPositive,
+                "AB-": self.abNegative,
+                "O+": self.oPositive,
+                "O-": self.oNegative,
+            },
             "createdAt": self.createdAt.isoformat() if self.createdAt else None,
         }
 
     @staticmethod
     def from_dict(data: dict):
+        inventory = data.get("inventory", {})
         return BloodBank(
             userId=data.get("userId"),
             name=data.get("name"),
@@ -208,6 +228,14 @@ class BloodBank(db.Model):
             address=data.get("address"),
             phone=data.get("phone"),
             verified=data.get("verified", True),
+            aPositive=inventory.get("A+", 0),
+            aNegative=inventory.get("A-", 0),
+            bPositive=inventory.get("B+", 0),
+            bNegative=inventory.get("B-", 0),
+            abPositive=inventory.get("AB+", 0),
+            abNegative=inventory.get("AB-", 0),
+            oPositive=inventory.get("O+", 0),
+            oNegative=inventory.get("O-", 0),
         )
 
 
@@ -243,4 +271,157 @@ class Camp(db.Model):
             date=data.get("date"),
             verified=data.get("verified", True),
         )
+
+
+class Notification(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    donorId = db.Column(db.Integer, db.ForeignKey("donor.id"), nullable=False)
+    receiverId = db.Column(db.Integer, db.ForeignKey("receiver.id"), nullable=False)
+    type = db.Column(db.String(50), default="blood_request")
+    subject = db.Column(db.String(200))
+    message = db.Column(db.Text)
+    status = db.Column(db.String(50), default="unread")
+    emailSent = db.Column(db.Boolean, default=False)
+    smsSent = db.Column(db.Boolean, default=False)
+    createdAt = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "donorId": self.donorId,
+            "receiverId": self.receiverId,
+            "type": self.type,
+            "subject": self.subject,
+            "message": self.message,
+            "status": self.status,
+            "emailSent": self.emailSent,
+            "smsSent": self.smsSent,
+            "createdAt": self.createdAt.isoformat() if self.createdAt else None,
+        }
+
+    @staticmethod
+    def from_dict(data: dict):
+        return Notification(
+            donorId=data.get("donorId"),
+            receiverId=data.get("receiverId"),
+            type=data.get("type", "blood_request"),
+            subject=data.get("subject"),
+            message=data.get("message"),
+            status=data.get("status", "unread"),
+            emailSent=data.get("emailSent", False),
+            smsSent=data.get("smsSent", False),
+        )
+
+
+class Feedback(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    fromUserId = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    toUserId = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    transactionId = db.Column(db.Integer, db.ForeignKey("receiver.id"), nullable=True)
+    rating = db.Column(db.Integer)  # 1-5 stars
+    comment = db.Column(db.Text)
+    type = db.Column(db.String(50))  # "response_speed", "reliability", "communication", etc
+    createdAt = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "fromUserId": self.fromUserId,
+            "toUserId": self.toUserId,
+            "transactionId": self.transactionId,
+            "rating": self.rating,
+            "comment": self.comment,
+            "type": self.type,
+            "createdAt": self.createdAt.isoformat() if self.createdAt else None,
+        }
+
+
+class SavedDonor(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    userId = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    donorId = db.Column(db.Integer, db.ForeignKey("donor.id"), nullable=False)
+    savedAt = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        donor = Donor.query.get(self.donorId)
+        if not donor:
+            return None
+        user = User.query.get(donor.userId)
+        return {
+            "id": donor.id,
+            "fullName": donor.fullName,
+            "bloodGroup": donor.bloodGroup,
+            "city": donor.city,
+            "phone": donor.phone,
+            "email": user.email if user else "",
+            "gender": donor.gender,
+            "age": donor.age,
+            "availabilityStatus": donor.availabilityStatus,
+        }
+
+
+class SavedReceiver(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    userId = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    receiverId = db.Column(db.Integer, db.ForeignKey("receiver.id"), nullable=False)
+    savedAt = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        receiver = Receiver.query.get(self.receiverId)
+        return {
+            "id": self.id,
+            "userId": self.userId,
+            "receiverId": self.receiverId,
+            "receiver": receiver.to_dict() if receiver else None,
+            "savedAt": self.savedAt.isoformat() if self.savedAt else None,
+        }
+
+
+class SearchHistory(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    userId = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    searchType = db.Column(db.String(50))  # "donor" or "receiver"
+    bloodGroup = db.Column(db.String(10))
+    city = db.Column(db.String(100))
+    filters = db.Column(db.Text)  # JSON string of filters
+    searchedAt = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        import json
+        return {
+            "id": self.id,
+            "userId": self.userId,
+            "searchType": self.searchType,
+            "bloodGroup": self.bloodGroup,
+            "city": self.city,
+            "filters": json.loads(self.filters) if self.filters else {},
+            "searchedAt": self.searchedAt.isoformat() if self.searchedAt else None,
+        }
+
+
+class DonorStats(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    donorId = db.Column(db.Integer, db.ForeignKey("donor.id"), nullable=False)
+    totalResponses = db.Column(db.Integer, default=0)
+    successfulDonations = db.Column(db.Integer, default=0)
+    cancelledDonations = db.Column(db.Integer, default=0)
+    averageResponseTime = db.Column(db.Float, default=0)  # hours
+    averageRating = db.Column(db.Float, default=0)  # 1-5
+    totalFeedback = db.Column(db.Integer, default=0)
+    reliability = db.Column(db.Float, default=0)  # percentage 0-100
+    lastUpdated = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "donorId": self.donorId,
+            "totalResponses": self.totalResponses,
+            "successfulDonations": self.successfulDonations,
+            "cancelledDonations": self.cancelledDonations,
+            "averageResponseTime": self.averageResponseTime,
+            "averageRating": self.averageRating,
+            "totalFeedback": self.totalFeedback,
+            "reliability": self.reliability,
+            "lastUpdated": self.lastUpdated.isoformat() if self.lastUpdated else None,
+        }
 

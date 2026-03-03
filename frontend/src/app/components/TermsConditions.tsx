@@ -3,30 +3,30 @@ import { ArrowLeft, Shield, AlertTriangle, FileText, Users } from "lucide-react"
 
 export function TermsConditions() {
   return (
-    <div className="pt-16 min-h-screen bg-gray-50">
+    <div className="pt-16 min-h-screen bg-background">
       <div className="max-w-4xl mx-auto px-4 py-12">
         <Link
           to="/"
-          className="inline-flex items-center gap-2 text-red-600 hover:text-red-700 mb-6"
+          className="inline-flex items-center gap-2 text-primary hover:text-primary-700 mb-8 font-medium transition-colors"
         >
-          <ArrowLeft className="w-5 h-5" />
+          <ArrowLeft className="w-4 h-4" />
           Back to Home
         </Link>
 
-        <div className="bg-white rounded-xl shadow-lg p-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Terms & Conditions</h1>
-          <p className="text-gray-600 mb-8">
+        <div className="bg-white rounded-md border border-border shadow-sm p-8">
+          <h1 className="text-3xl font-bold text-foreground mb-2">Terms & Conditions</h1>
+          <p className="text-muted-foreground mb-8">
             Last updated: February 25, 2026
           </p>
 
           <div className="space-y-8">
             {/* Important Notice */}
-            <div className="bg-red-50 border-l-4 border-red-500 p-6 rounded-r-lg">
+            <div className="bg-warning-50 border-l-4 border-warning-600 p-6 rounded-r-lg">
               <div className="flex gap-3">
-                <AlertTriangle className="w-6 h-6 text-red-600 flex-shrink-0" />
+                <AlertTriangle className="w-6 h-6 text-warning-600 flex-shrink-0" />
                 <div>
-                  <h2 className="text-xl font-bold text-red-900 mb-2">Important Notice</h2>
-                  <p className="text-red-800">
+                  <h2 className="text-xl font-bold text-warning-900 mb-2">Important Notice</h2>
+                  <p className="text-warning-800">
                     This platform is a coordination system designed to connect blood donors,
                     receivers, and blood banks. It is NOT a replacement for professional medical
                     services or hospitals. All blood donations must be conducted through
@@ -39,10 +39,10 @@ export function TermsConditions() {
             {/* Donor Responsibility */}
             <section>
               <div className="flex items-center gap-3 mb-4">
-                <Users className="w-6 h-6 text-red-600" />
-                <h2 className="text-2xl font-bold text-gray-900">Donor Responsibility Declaration</h2>
+                <Users className="w-6 h-6 text-primary" />
+                <h2 className="text-2xl font-bold text-foreground">Donor Responsibility Declaration</h2>
               </div>
-              <div className="space-y-4 text-gray-700 leading-relaxed">
+              <div className="space-y-4 text-foreground leading-relaxed">
                 <p>
                   By registering as a blood donor on this platform, you acknowledge and agree to
                   the following responsibilities:
@@ -76,10 +76,10 @@ export function TermsConditions() {
             {/* Data Privacy Assurance */}
             <section>
               <div className="flex items-center gap-3 mb-4">
-                <Shield className="w-6 h-6 text-red-600" />
-                <h2 className="text-2xl font-bold text-gray-900">Data Privacy & Security</h2>
+                <Shield className="w-6 h-6 text-primary" />
+                <h2 className="text-2xl font-bold text-foreground">Data Privacy & Security</h2>
               </div>
-              <div className="space-y-4 text-gray-700 leading-relaxed">
+              <div className="space-y-4 text-foreground leading-relaxed">
                 <p>
                   We are committed to protecting your personal information and medical data:
                 </p>
@@ -112,11 +112,11 @@ export function TermsConditions() {
             {/* Medical Safety Disclaimer */}
             <section>
               <div className="flex items-center gap-3 mb-4">
-                <FileText className="w-6 h-6 text-red-600" />
-                <h2 className="text-2xl font-bold text-gray-900">Medical Safety Disclaimer</h2>
+                <FileText className="w-6 h-6 text-primary" />
+                <h2 className="text-2xl font-bold text-foreground">Medical Safety Disclaimer</h2>
               </div>
-              <div className="space-y-4 text-gray-700 leading-relaxed">
-                <p className="font-semibold text-red-700">
+              <div className="space-y-4 text-foreground leading-relaxed">
+                <p className="font-semibold text-destructive">
                   IMPORTANT: Read this section carefully before proceeding.
                 </p>
                 <ul className="list-disc pl-6 space-y-2">
@@ -151,10 +151,10 @@ export function TermsConditions() {
 
             {/* Platform Role */}
             <section>
-              <h2 className="text-2xl font-bold text-gray-900 mb-4">
+              <h2 className="text-2xl font-bold text-foreground mb-4">
                 Platform Role & Limitations
               </h2>
-              <div className="space-y-4 text-gray-700 leading-relaxed">
+              <div className="space-y-4 text-foreground leading-relaxed">
                 <p>This platform serves as:</p>
                 <ul className="list-disc pl-6 space-y-2">
                   <li>
@@ -185,8 +185,8 @@ export function TermsConditions() {
 
             {/* User Obligations */}
             <section>
-              <h2 className="text-2xl font-bold text-gray-900 mb-4">User Obligations</h2>
-              <div className="space-y-4 text-gray-700 leading-relaxed">
+              <h2 className="text-2xl font-bold text-foreground mb-4">User Obligations</h2>
+              <div className="space-y-4 text-foreground leading-relaxed">
                 <p>All users of this platform agree to:</p>
                 <ul className="list-disc pl-6 space-y-2">
                   <li>Provide accurate and up-to-date information</li>
@@ -202,8 +202,8 @@ export function TermsConditions() {
 
             {/* Liability Limitation */}
             <section>
-              <h2 className="text-2xl font-bold text-gray-900 mb-4">Limitation of Liability</h2>
-              <div className="space-y-4 text-gray-700 leading-relaxed">
+              <h2 className="text-2xl font-bold text-foreground mb-4">Limitation of Liability</h2>
+              <div className="space-y-4 text-foreground leading-relaxed">
                 <p>
                   To the fullest extent permitted by law, the platform operators, administrators,
                   and associated parties shall not be liable for:
@@ -219,9 +219,9 @@ export function TermsConditions() {
             </section>
 
             {/* Consent */}
-            <section className="bg-gray-50 p-6 rounded-lg border-2 border-red-200">
-              <h2 className="text-2xl font-bold text-gray-900 mb-4">User Consent</h2>
-              <p className="text-gray-700 leading-relaxed">
+            <section className="bg-surface p-6 rounded-md border-2 border-warning-200">
+              <h2 className="text-2xl font-bold text-foreground mb-4">User Consent</h2>
+              <p className="text-foreground leading-relaxed">
                 By using this platform, creating an account, or registering as a donor/receiver,
                 you confirm that you have read, understood, and agree to these Terms & Conditions.
                 You acknowledge that you have been informed about the limitations of this platform
@@ -232,8 +232,8 @@ export function TermsConditions() {
 
             {/* Contact Information */}
             <section>
-              <h2 className="text-2xl font-bold text-gray-900 mb-4">Contact & Support</h2>
-              <div className="text-gray-700 space-y-2">
+              <h2 className="text-2xl font-bold text-foreground mb-4">Contact & Support</h2>
+              <div className="text-foreground space-y-2">
                 <p>
                   For questions, concerns, or support regarding these terms:
                 </p>
@@ -254,13 +254,13 @@ export function TermsConditions() {
               <div className="flex gap-4">
                 <Link
                   to="/"
-                  className="flex-1 text-center bg-gray-200 text-gray-700 py-3 rounded-lg hover:bg-gray-300 transition font-semibold"
+                  className="flex-1 text-center bg-muted text-foreground py-3 rounded-md hover:bg-muted/80 transition font-semibold"
                 >
                   Go Back
                 </Link>
                 <Link
                   to="/register"
-                  className="flex-1 text-center bg-red-600 text-white py-3 rounded-lg hover:bg-red-700 transition font-semibold"
+                  className="flex-1 text-center bg-primary text-white py-3 rounded-md hover:bg-primary-700 transition font-semibold"
                 >
                   I Accept - Proceed to Register
                 </Link>

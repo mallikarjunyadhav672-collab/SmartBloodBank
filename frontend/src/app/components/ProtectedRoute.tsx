@@ -12,7 +12,7 @@ export function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps) 
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="text-lg">Loading...</div>
+        <div className="text-lg text-foreground">Loading...</div>
       </div>
     );
   }
@@ -34,7 +34,7 @@ export function PublicRoute({ children }: { children: React.ReactNode }) {
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="text-lg">Loading...</div>
+        <div className="text-lg text-foreground">Loading...</div>
       </div>
     );
   }
