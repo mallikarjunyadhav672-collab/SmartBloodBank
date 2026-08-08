@@ -8,3 +8,4 @@ bcrypt
 PyJWT
 marshmallow
 geopy
+gunicorn
