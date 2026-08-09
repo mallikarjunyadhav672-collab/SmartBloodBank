@@ -9,3 +9,4 @@ PyJWT
 marshmallow
 geopy
 gunicorn
+psycopg2-binary
